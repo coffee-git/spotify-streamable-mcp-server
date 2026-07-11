@@ -1,5 +1,4 @@
 // Hono adapter for OAuth routes
-// Provider-agnostic version from Spotify MCP
 
 import type { HttpBindings } from '@hono/node-server';
 import { Hono } from 'hono';
@@ -31,22 +30,15 @@ export function buildOAuthRoutes(
   const oauthConfig = buildOAuthConfig(config);
 
   app.get('/authorize', async (c) => {
-    logger.debug('oauth_hono', { message: 'Authorize request received' });
-
     try {
       const url = new URL(c.req.url);
-      const input = parseAuthorizeInput(url);
-      const options = buildFlowOptions(url, config);
-
       const result = await handleAuthorize(
-        input,
+        parseAuthorizeInput(url, c.req.header('Mcp-Session-Id')),
         store,
         providerConfig,
         oauthConfig,
-        options,
+        buildFlowOptions(url, config),
       );
-
-      logger.info('oauth_hono', { message: 'Authorize redirect' });
       return c.redirect(result.redirectTo, 302);
     } catch (error) {
       logger.error('oauth_hono', {
@@ -58,27 +50,17 @@ export function buildOAuthRoutes(
   });
 
   app.get('/oauth/callback', async (c) => {
-    logger.debug('oauth_hono', { message: 'Callback request received' });
-
     try {
       const url = new URL(c.req.url);
       const { code, state } = parseCallbackInput(url);
-
-      if (!code || !state) {
-        return c.text('invalid_callback: missing code or state', 400);
-      }
-
-      const options = buildFlowOptions(url, config);
-
+      if (!code || !state) return c.text('invalid_callback: missing code or state', 400);
       const result = await handleProviderCallback(
         { providerCode: code, compositeState: state },
         store,
         providerConfig,
         oauthConfig,
-        options,
+        buildFlowOptions(url, config),
       );
-
-      logger.info('oauth_hono', { message: 'Callback success' });
       return c.redirect(result.redirectTo, 302);
     } catch (error) {
       logger.error('oauth_hono', {
@@ -90,21 +72,10 @@ export function buildOAuthRoutes(
   });
 
   app.post('/token', async (c) => {
-    logger.debug('oauth_hono', { message: 'Token request received' });
-
     try {
-      const form = await parseTokenInput(c.req.raw);
-      const tokenInput = buildTokenInput(form);
-
-      if ('error' in tokenInput) {
-        return c.json({ error: tokenInput.error }, 400);
-      }
-
-      // Pass providerConfig for refresh_token grant to enable provider token refresh
-      const result = await handleToken(tokenInput, store, providerConfig);
-
-      logger.info('oauth_hono', { message: 'Token exchange success' });
-      return c.json(result);
+      const tokenInput = buildTokenInput(await parseTokenInput(c.req.raw));
+      if ('error' in tokenInput) return c.json({ error: tokenInput.error }, 400);
+      return c.json(await handleToken(tokenInput, store, providerConfig));
     } catch (error) {
       logger.error('oauth_hono', {
         message: 'Token exchange failed',
@@ -115,28 +86,35 @@ export function buildOAuthRoutes(
   });
 
   app.post('/revoke', async (c) => {
-    const result = await handleRevoke();
-    return c.json(result);
+    const form = await parseTokenInput(c.req.raw);
+    return c.json(await handleRevoke(form.get('token') ?? undefined, store));
   });
 
   app.post('/register', async (c) => {
     try {
       const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
       const url = new URL(c.req.url);
-
-      logger.debug('oauth_hono', { message: 'Register request' });
-
       const result = await handleRegister(
         {
           redirect_uris: Array.isArray(body.redirect_uris)
             ? (body.redirect_uris as string[])
             : undefined,
+          grant_types: Array.isArray(body.grant_types)
+            ? (body.grant_types as string[])
+            : undefined,
+          response_types: Array.isArray(body.response_types)
+            ? (body.response_types as string[])
+            : undefined,
+          token_endpoint_auth_method:
+            typeof body.token_endpoint_auth_method === 'string'
+              ? body.token_endpoint_auth_method
+              : undefined,
+          client_name: typeof body.client_name === 'string' ? body.client_name : undefined,
         },
         url.origin,
         config.OAUTH_REDIRECT_URI,
+        config.RS_TOKENS_ENC_KEY || `${url.origin}|development-only`,
       );
-
-      logger.info('oauth_hono', { message: 'Client registered' });
       return c.json(result, 201);
     } catch (error) {
       return c.json({ error: (error as Error).message }, 400);
