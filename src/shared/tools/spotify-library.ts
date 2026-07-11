@@ -5,10 +5,11 @@ import { SpotifyLibraryOutputObject } from '../../schemas/outputs.js';
 import { getSpotifyUserClient } from '../../services/spotify/sdk.js';
 import { SavedTracksResponseCodec } from '../../types/spotify.codecs.js';
 import { toSlimTrack } from '../../utils/mappers.js';
+import { toSafeSpotifyError } from './spotify-errors.js';
 import { defineTool, type ToolContext, type ToolResult } from './types.js';
 
 const ok = (action: string, data: unknown, text: string): ToolResult => ({ content: [{ type: 'text', text }], structuredContent: { ok: true, action, _msg: text, data } });
-const fail = (action: string, error: unknown): ToolResult => ({ isError: true, content: [{ type: 'text', text: String(error) }], structuredContent: { ok: false, action, error: String(error) } });
+const fail = (action: string, message: string, code?: string): ToolResult => ({ isError: true, content: [{ type: 'text', text: message }], structuredContent: { ok: false, action, error: message, code } });
 const endpoint = (path: string, params: URLSearchParams) => params.size ? `${path}?${params}` : path;
 const request = <T>(client: SpotifyApi, method: 'GET'|'PUT'|'DELETE', path: string) => client.makeRequest<T>(method, path);
 const normalizeUris = (args: SpotifyLibraryInput) => args.uris?.length ? args.uris : (args.ids ?? []).map((id) => `spotify:track:${id}`);
@@ -19,11 +20,11 @@ export const spotifyLibraryTool = defineTool({
   description: toolsMetadata.spotify_library.description,
   inputSchema: SpotifyLibraryInputSchema,
   outputSchema: SpotifyLibraryOutputObject.shape,
-  annotations: { title: toolsMetadata.spotify_library.title, readOnlyHint: false, openWorldHint: true },
+  annotations: { title: toolsMetadata.spotify_library.title, readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
   handler: async (args: SpotifyLibraryInput, context: ToolContext): Promise<ToolResult> => {
     try {
       const client = await getSpotifyUserClient(context);
-      if (!client) return fail(args.action, 'Not authenticated');
+      if (!client) return fail(args.action, 'Not authenticated', 'unauthorized');
       if (args.action === 'tracks_get') {
         const params = new URLSearchParams({ limit: String(args.limit ?? 20), offset: String(args.offset ?? 0) });
         if (args.market) params.set('market', args.market);
@@ -32,7 +33,7 @@ export const spotifyLibraryTool = defineTool({
         return ok(args.action, { limit: page.limit, offset: page.offset, total: page.total, items }, `Loaded ${items.length} saved track(s).`);
       }
       const uris = normalizeUris(args);
-      if (!uris.length) return fail(args.action, 'uris are required');
+      if (!uris.length) return fail(args.action, 'uris or ids are required', 'invalid_arguments');
       const params = new URLSearchParams({ uris: uris.join(',') });
       if (args.action === 'tracks_contains') {
         const contains = await request<boolean[]>(client, 'GET', endpoint('me/library/contains', params));
@@ -44,6 +45,9 @@ export const spotifyLibraryTool = defineTool({
       }
       await request(client, 'DELETE', endpoint('me/library', params));
       return ok(args.action, { uris }, `Removed ${uris.length} saved track(s).`);
-    } catch (error) { return fail(args.action, (error as Error).message); }
+    } catch (error) {
+      const safe = toSafeSpotifyError(error);
+      return fail(args.action, safe.message, safe.code);
+    }
   },
 });
