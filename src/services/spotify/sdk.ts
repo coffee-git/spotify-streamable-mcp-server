@@ -15,6 +15,7 @@ import { config } from '../../config/env.js';
 import { getTokenStore } from '../../shared/storage/singleton.js';
 import type { ToolContext } from '../../shared/tools/types.js';
 import { sharedLogger as logger } from '../../shared/utils/logger.js';
+import { withSpotify2026Compatibility } from './development-mode-2026.js';
 import { refreshSpotifyTokens } from './oauth.js';
 
 // ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ export function getSpotifyAppClient(): SpotifyApi {
 
   if (!appClient) {
     const strategy = new ClientCredentialsStrategy(clientId, clientSecret);
-    appClient = new SpotifyApi(strategy, sdkOptions);
+    appClient = withSpotify2026Compatibility(new SpotifyApi(strategy, sdkOptions));
   }
 
   return appClient;
@@ -126,7 +127,7 @@ export async function getSpotifyUserClient(
   };
 
   const strategy = new ContextAuthStrategy(accessToken, context);
-  return new SpotifyApi(strategy, sdkOptions);
+  return withSpotify2026Compatibility(new SpotifyApi(strategy, sdkOptions));
 }
 
 // ---------------------------------------------------------------------------

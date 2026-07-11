@@ -17,6 +17,8 @@ export type AuthorizationServerMetadata = {
 export type ProtectedResourceMetadata = {
   authorization_servers: string[];
   resource: string;
+  scopes_supported?: string[];
+  bearer_methods_supported?: string[];
 };
 
 export function buildAuthorizationServerMetadata(
@@ -45,23 +47,12 @@ export function buildAuthorizationServerMetadata(
 export function buildProtectedResourceMetadata(
   resourceUrl: string,
   authorizationServerUrl: string,
-  sid?: string,
+  scopes: string[] = [],
 ): ProtectedResourceMetadata {
-  const resource = (() => {
-    if (!sid) {
-      return resourceUrl;
-    }
-    try {
-      const u = new URL(resourceUrl);
-      u.searchParams.set('sid', sid);
-      return u.toString();
-    } catch {
-      return resourceUrl;
-    }
-  })();
-
   return {
     authorization_servers: [authorizationServerUrl],
-    resource,
+    resource: resourceUrl,
+    scopes_supported: scopes,
+    bearer_methods_supported: ['header'],
   };
 }

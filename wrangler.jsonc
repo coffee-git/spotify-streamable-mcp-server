@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "spotify-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "kv_namespaces": [
+    {
+      "binding": "TOKENS",
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "vars": {
+    "NODE_ENV": "production",
+    "MCP_PROTOCOL_VERSION": "2025-11-25",
+    "MCP_TITLE": "Spotify Music",
+    "MCP_VERSION": "1.0.0",
+    "AUTH_STRATEGY": "oauth",
+    "AUTH_ENABLED": "true",
+    "AUTH_REQUIRE_RS": "true",
+    "AUTH_ALLOW_DIRECT_BEARER": "false",
+    "AUTH_RESOURCE_URI": "https://spotify-mcp.YOUR_SUBDOMAIN.workers.dev/mcp",
+    "SPOTIFY_ACCOUNTS_URL": "https://accounts.spotify.com",
+    "SPOTIFY_API_URL": "https://api.spotify.com/v1",
+    "OAUTH_SCOPES": "user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-recently-played user-top-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-library-read user-library-modify",
+    "OAUTH_REDIRECT_ALLOW_ALL": "false",
+    "OAUTH_REDIRECT_ALLOWLIST": "https://chatgpt.com/connector/oauth/REPLACE_WITH_CALLBACK_ID",
+    "OAUTH_REDIRECT_URI": "https://chatgpt.com/connector/oauth/REPLACE_WITH_CALLBACK_ID",
+    "LOG_LEVEL": "info"
+  }
+}

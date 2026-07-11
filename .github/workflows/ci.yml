@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - chatgpt-web-spotify-2026-minimal
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.19
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - name: Lint changed source files with Biome
+        run: >-
+          bunx biome lint
+          src/services/spotify/development-mode-2026.ts
+          src/services/spotify/sdk.ts
+          src/shared/mcp/security.ts
+          src/shared/oauth/discovery-handlers.ts
+          src/shared/oauth/discovery.ts
+          src/shared/tools/registry.ts
+          src/shared/tools/spotify-user-data.ts
+          src/__tests__/spotify-2026-minimal.test.ts
+          wrangler.jsonc
+      - run: bunx wrangler deploy --dry-run --outdir dist-worker

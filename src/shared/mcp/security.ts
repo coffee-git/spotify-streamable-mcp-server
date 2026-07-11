@@ -45,8 +45,10 @@ export function validateProtocolVersion(headers: Headers, _expected: string): vo
     .filter(Boolean);
 
   // Accept if client sends any supported version
-  const hasSupported = clientVersions.some(v => SUPPORTED_PROTOCOL_VERSIONS.includes(v));
-  
+  const hasSupported = clientVersions.some((v) =>
+    SUPPORTED_PROTOCOL_VERSIONS.includes(v),
+  );
+
   if (!hasSupported) {
     throw new Error(
       `Unsupported MCP protocol version: ${header}. Supported: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`,
@@ -89,7 +91,8 @@ export type UnauthorizedChallenge = {
 };
 
 /**
- * Build a 401 Unauthorized challenge response for MCP
+ * Build a 401 Unauthorized challenge response for MCP.
+ * ChatGPT follows resource_metadata to discover OAuth configuration.
  */
 export function buildUnauthorizedChallenge(args: {
   origin: string;
@@ -98,12 +101,12 @@ export function buildUnauthorizedChallenge(args: {
   message?: string;
 }): UnauthorizedChallenge {
   const resourcePath = args.resourcePath || '/.well-known/oauth-protected-resource';
-  const resourceMd = `${args.origin}${resourcePath}?sid=${encodeURIComponent(args.sid)}`;
+  const resourceMetadata = `${args.origin}${resourcePath}`;
 
   return {
     status: 401,
     headers: {
-      'WWW-Authenticate': `Bearer realm="MCP", authorization_uri="${resourceMd}"`,
+      'WWW-Authenticate': `Bearer realm="MCP", resource_metadata="${resourceMetadata}"`,
       'Mcp-Session-Id': args.sid,
     },
     body: {
