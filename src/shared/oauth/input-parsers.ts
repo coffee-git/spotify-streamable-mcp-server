@@ -22,14 +22,8 @@ export function parseAuthorizeInput(url: URL, sessionId?: string): AuthorizeInpu
   };
 }
 
-export function parseCallbackInput(url: URL): {
-  code: string | null;
-  state: string | null;
-} {
-  return {
-    code: url.searchParams.get('code'),
-    state: url.searchParams.get('state'),
-  };
+export function parseCallbackInput(url: URL): { code: string | null; state: string | null } {
+  return { code: url.searchParams.get('code'), state: url.searchParams.get('state') };
 }
 
 export async function parseTokenInput(request: Request): Promise<URLSearchParams> {
@@ -45,7 +39,6 @@ export function buildTokenInput(form: URLSearchParams): TokenInput | { error: st
   const grant = form.get('grant_type');
   const clientId = form.get('client_id') || '';
   const resource = form.get('resource') ?? undefined;
-
   if (!clientId) return { error: 'missing_client_id' };
 
   if (grant === 'refresh_token') {
@@ -61,14 +54,7 @@ export function buildTokenInput(form: URLSearchParams): TokenInput | { error: st
     if (!code || !codeVerifier || !redirectUri) {
       return { error: 'missing_code_verifier_or_redirect_uri' };
     }
-    return {
-      grant: 'authorization_code',
-      clientId,
-      code,
-      codeVerifier,
-      redirectUri,
-      resource,
-    };
+    return { grant: 'authorization_code', clientId, code, codeVerifier, redirectUri, resource };
   }
 
   return { error: 'unsupported_grant_type' };
@@ -97,13 +83,15 @@ export function buildFlowOptions(
   overrides: { callbackPath?: string; tokenEndpointPath?: string } = {},
 ): OAuthFlowOptions {
   const resource = config.AUTH_RESOURCE_URI || `${url.origin}/mcp`;
-  const signingKey = config.RS_TOKENS_ENC_KEY || `${url.origin}|development-only`;
+  if (config.NODE_ENV === 'production' && !config.RS_TOKENS_ENC_KEY) {
+    throw new Error('server_error: RS_TOKENS_ENC_KEY is required in production');
+  }
   return {
     baseUrl: url.origin,
     isDev: config.NODE_ENV === 'development',
     callbackPath: overrides.callbackPath ?? '/oauth/callback',
     tokenEndpointPath: overrides.tokenEndpointPath ?? '/api/token',
-    clientSigningKey: signingKey,
+    clientSigningKey: config.RS_TOKENS_ENC_KEY || `${url.origin}|development-only`,
     resource,
   };
 }
