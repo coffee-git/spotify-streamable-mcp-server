@@ -24,6 +24,7 @@ jobs:
       - name: Lint changed source files with Biome
         run: >-
           bunx biome lint
+          src/services/spotify/development-mode-2026.ts
           src/services/spotify/sdk.ts
           src/shared/mcp/security.ts
           src/shared/oauth/discovery-handlers.ts
