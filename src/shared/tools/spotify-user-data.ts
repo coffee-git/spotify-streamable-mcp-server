@@ -5,10 +5,11 @@ import { SpotifyUserDataOutputObject } from '../../schemas/outputs.js';
 import { getSpotifyUserClient } from '../../services/spotify/sdk.js';
 import { MeResponseCodec, RecentlyPlayedResponseCodec, TopArtistsResponseCodec, TopTracksResponseCodec } from '../../types/spotify.codecs.js';
 import { toSlimArtistDetails, toSlimTrack, toUserProfile } from '../../utils/mappers.js';
+import { toSafeSpotifyError } from './spotify-errors.js';
 import { defineTool, type ToolContext, type ToolResult } from './types.js';
 
 const result = (action: string, data: unknown, text: string): ToolResult => ({ content: [{ type: 'text', text }], structuredContent: { ok: true, action, _msg: text, data } });
-const failure = (action: string, error: unknown): ToolResult => ({ isError: true, content: [{ type: 'text', text: String(error) }], structuredContent: { ok: false, action, error: String(error) } });
+const failure = (action: string, message: string, code?: string): ToolResult => ({ isError: true, content: [{ type: 'text', text: message }], structuredContent: { ok: false, action, error: message, code } });
 const endpoint = (path: string, params: URLSearchParams) => params.size ? `${path}?${params}` : path;
 const get = <T>(client: SpotifyApi, path: string) => client.makeRequest<T>('GET', path);
 
@@ -22,8 +23,11 @@ export const spotifyUserDataTool = defineTool({
   handler: async (args: SpotifyUserDataInput, context: ToolContext): Promise<ToolResult> => {
     try {
       const client = await getSpotifyUserClient(context);
-      if (!client) return failure(args.action, 'Not authenticated');
-      if (args.after !== undefined && args.before !== undefined) return failure(args.action, 'Use only one of after or before');
+      if (!client) return failure(args.action, 'Not authenticated', 'unauthorized');
+      if (args.after !== undefined && args.before !== undefined) return failure(args.action, 'Use only one of after or before', 'invalid_arguments');
+      if (args.action !== 'recently_played' && (args.after !== undefined || args.before !== undefined)) {
+        return failure(args.action, 'after and before are only valid for recently_played', 'invalid_arguments');
+      }
       if (args.action === 'profile') {
         const data = toUserProfile(MeResponseCodec.parse(await get<unknown>(client, 'me')));
         return result(args.action, data, `Signed in as ${data.display_name || data.id}.`);
@@ -46,6 +50,9 @@ export const spotifyUserDataTool = defineTool({
       const page = TopArtistsResponseCodec.parse(await get<unknown>(client, endpoint('me/top/artists', params)));
       const items = (page.items ?? []).map(toSlimArtistDetails);
       return result(args.action, { limit: page.limit, offset: page.offset, total: page.total, next: page.next, items }, `Loaded ${items.length} top artist(s).`);
-    } catch (error) { return failure(args.action, (error as Error).message); }
+    } catch (error) {
+      const safe = toSafeSpotifyError(error);
+      return failure(args.action, safe.message, safe.code);
+    }
   },
 });
