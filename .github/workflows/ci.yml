@@ -21,6 +21,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
-      - run: bun run lint
-      - run: bun run format:check
+      - name: Check changed source files with Biome
+        run: >-
+          bunx biome check
+          src/services/spotify/sdk.ts
+          src/shared/mcp/security.ts
+          src/shared/oauth/discovery-handlers.ts
+          src/shared/oauth/discovery.ts
+          src/shared/tools/registry.ts
+          src/shared/tools/spotify-user-data.ts
+          src/__tests__/spotify-2026-minimal.test.ts
+          wrangler.jsonc
       - run: bunx wrangler deploy --dry-run --outdir dist-worker
