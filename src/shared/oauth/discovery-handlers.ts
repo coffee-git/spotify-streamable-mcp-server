@@ -41,20 +41,24 @@ export function createDiscoveryHandlers(
         revocationEndpoint: `${baseUrl}/revoke`,
       });
     },
-    protectedResourceMetadata: (requestUrl: URL, sid?: string) => {
-      const resourceBase = strategy.resolveResourceBaseUrl(requestUrl, config);
+    protectedResourceMetadata: (requestUrl: URL, _sid?: string) => {
+      const resourceBase =
+        config.AUTH_RESOURCE_URI || strategy.resolveResourceBaseUrl(requestUrl, config);
       const authorizationServerUrl =
         config.AUTH_DISCOVERY_URL ||
         strategy.resolveAuthorizationServerUrl(requestUrl, config);
-      return buildProtectedResourceMetadata(resourceBase, authorizationServerUrl, sid);
+      return buildProtectedResourceMetadata(
+        resourceBase,
+        authorizationServerUrl,
+        scopes,
+      );
     },
   };
 }
 
 export const workerDiscoveryStrategy: DiscoveryStrategy = {
   resolveAuthBaseUrl: (requestUrl) => requestUrl.origin,
-  resolveAuthorizationServerUrl: (requestUrl) =>
-    `${requestUrl.origin}/.well-known/oauth-authorization-server`,
+  resolveAuthorizationServerUrl: (requestUrl) => requestUrl.origin,
   resolveResourceBaseUrl: (requestUrl) => `${requestUrl.origin}/mcp`,
 };
 
@@ -65,7 +69,7 @@ export const nodeDiscoveryStrategy: DiscoveryStrategy = {
   },
   resolveAuthorizationServerUrl: (requestUrl, config) => {
     const authPort = Number(config.PORT) + 1;
-    return `${requestUrl.protocol}//${requestUrl.hostname}:${authPort}/.well-known/oauth-authorization-server`;
+    return `${requestUrl.protocol}//${requestUrl.hostname}:${authPort}`;
   },
   resolveResourceBaseUrl: (requestUrl) =>
     `${requestUrl.protocol}//${requestUrl.host}/mcp`,
