@@ -1,7 +1,7 @@
 {
   "name": "mcp-spotify",
-  "version": "1.0.0",
-  "description": "Spotify MCP Server - Control playback, manage playlists, and search music",
+  "version": "1.1.0",
+  "description": "Remote Spotify MCP for ChatGPT Web, playlist management, and taste analysis",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -11,8 +11,8 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "deploy": "wrangler deploy",
     "deploy:tail": "wrangler tail",
-    "kv:create": "wrangler kv:namespace create TOKENS",
-    "kv:create:preview": "wrangler kv:namespace create TOKENS --preview",
+    "kv:create": "wrangler kv namespace create TOKENS",
+    "kv:create:preview": "wrangler kv namespace create TOKENS --preview",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
@@ -27,6 +27,8 @@
     "model-context-protocol",
     "streamable-http",
     "oauth2",
+    "chatgpt",
+    "cloudflare-workers",
     "music"
   ],
   "author": "",
