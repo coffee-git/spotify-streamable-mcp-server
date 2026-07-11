@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   normalizeSpotifyDevelopmentModeResponse,
   rewriteSpotifyDevelopmentModeRequest,
-} from '../services/spotify/sdk.js';
+} from '../services/spotify/development-mode-2026.js';
 import { buildUnauthorizedChallenge } from '../shared/mcp/security.js';
 import { buildProtectedResourceMetadata } from '../shared/oauth/discovery.js';
 import { getSharedToolNames } from '../shared/tools/registry.js';
@@ -37,16 +37,17 @@ describe('Spotify Development Mode 2026 adapter', () => {
     });
   });
 
-  test('converts library IDs to Spotify URIs', () => {
-    expect(
-      rewriteSpotifyDevelopmentModeRequest('PUT', 'me/tracks', {
-        ids: ['abc', 'def'],
-      }),
-    ).toEqual({
-      path: 'me/library',
-      body: {
-        uris: ['spotify:track:abc', 'spotify:track:def'],
-      },
+  test('converts library IDs to query URIs', () => {
+    const save = rewriteSpotifyDevelopmentModeRequest('PUT', 'me/tracks', {
+      ids: ['abc', 'def'],
+    });
+    expect(save.body).toBeUndefined();
+    expect(save.path).toBe(
+      'me/library?uris=spotify%3Atrack%3Aabc%2Cspotify%3Atrack%3Adef',
+    );
+    expect(save.library).toEqual({
+      method: 'PUT',
+      uriBatches: [['spotify:track:abc', 'spotify:track:def']],
     });
 
     expect(
@@ -54,7 +55,19 @@ describe('Spotify Development Mode 2026 adapter', () => {
         'GET',
         'me/tracks/contains?ids=abc,def',
       ).path,
-    ).toBe('me/library/contains?uris=spotify%3Atrack%3Aabc%2Cspotify%3Atrack%3Adef');
+    ).toBe(
+      'me/library/contains?uris=spotify%3Atrack%3Aabc%2Cspotify%3Atrack%3Adef',
+    );
+  });
+
+  test('splits generic library requests into batches of 40', () => {
+    const ids = Array.from({ length: 50 }, (_, index) => `track${index}`);
+    const rewrite = rewriteSpotifyDevelopmentModeRequest('DELETE', 'me/tracks', {
+      ids,
+    });
+    expect(rewrite.library?.uriBatches.map((batch) => batch.length)).toEqual([
+      40, 10,
+    ]);
   });
 
   test('marks removed batch track fetches for fan-out', () => {
