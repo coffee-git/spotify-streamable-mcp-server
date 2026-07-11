@@ -1,11 +1,5 @@
-// OAuth discovery handlers with strategy pattern for Node + Workers
-// From Spotify MCP
-
 import type { UnifiedConfig } from '../config/env.js';
-import {
-  buildAuthorizationServerMetadata,
-  buildProtectedResourceMetadata,
-} from './discovery.js';
+import { buildAuthorizationServerMetadata, buildProtectedResourceMetadata } from './discovery.js';
 
 type DiscoveryStrategy = {
   resolveAuthBaseUrl(requestUrl: URL, config: UnifiedConfig): string;
@@ -13,60 +7,28 @@ type DiscoveryStrategy = {
   resolveResourceBaseUrl(requestUrl: URL, config: UnifiedConfig): string;
 };
 
-export function createDiscoveryHandlers(
-  config: UnifiedConfig,
-  strategy: DiscoveryStrategy,
-): {
-  authorizationMetadata: (
-    requestUrl: URL,
-  ) => ReturnType<typeof buildAuthorizationServerMetadata>;
-  protectedResourceMetadata: (
-    requestUrl: URL,
-    sid?: string,
-  ) => ReturnType<typeof buildProtectedResourceMetadata>;
-} {
-  const scopes = config.OAUTH_SCOPES.split(/\s+/)
-    .map((scope) => scope.trim())
-    .filter(Boolean);
-
+export function createDiscoveryHandlers(config: UnifiedConfig, strategy: DiscoveryStrategy) {
+  const scopes = config.OAUTH_SCOPES.split(/\s+/).map((x) => x.trim()).filter(Boolean);
   return {
     authorizationMetadata: (requestUrl: URL) => {
-      const baseUrl = strategy.resolveAuthBaseUrl(requestUrl, config);
-      // IMPORTANT: Advertise OUR proxy endpoints, not the provider's directly!
-      // Our /authorize and /token endpoints will proxy to the provider.
-      return buildAuthorizationServerMetadata(baseUrl, scopes, {
-        // Use our endpoints (default behavior when not overriding)
-        authorizationEndpoint: `${baseUrl}/authorize`,
-        tokenEndpoint: `${baseUrl}/token`,
-        revocationEndpoint: `${baseUrl}/revoke`,
-      });
+      const base = strategy.resolveAuthBaseUrl(requestUrl, config);
+      return buildAuthorizationServerMetadata(base, scopes, { authorizationEndpoint: `${base}/authorize`, tokenEndpoint: `${base}/token`, revocationEndpoint: `${base}/revoke` });
     },
-    protectedResourceMetadata: (requestUrl: URL, sid?: string) => {
-      const resourceBase = strategy.resolveResourceBaseUrl(requestUrl, config);
-      const authorizationServerUrl =
-        config.AUTH_DISCOVERY_URL ||
-        strategy.resolveAuthorizationServerUrl(requestUrl, config);
-      return buildProtectedResourceMetadata(resourceBase, authorizationServerUrl, sid);
+    protectedResourceMetadata: (requestUrl: URL) => {
+      const resource = config.AUTH_RESOURCE_URI || strategy.resolveResourceBaseUrl(requestUrl, config);
+      const authServer = config.AUTH_DISCOVERY_URL || strategy.resolveAuthorizationServerUrl(requestUrl, config);
+      return buildProtectedResourceMetadata(resource, authServer, scopes);
     },
   };
 }
 
 export const workerDiscoveryStrategy: DiscoveryStrategy = {
-  resolveAuthBaseUrl: (requestUrl) => requestUrl.origin,
-  resolveAuthorizationServerUrl: (requestUrl) =>
-    `${requestUrl.origin}/.well-known/oauth-authorization-server`,
-  resolveResourceBaseUrl: (requestUrl) => `${requestUrl.origin}/mcp`,
+  resolveAuthBaseUrl: (url) => url.origin,
+  resolveAuthorizationServerUrl: (url) => url.origin,
+  resolveResourceBaseUrl: (url) => `${url.origin}/mcp`,
 };
-
 export const nodeDiscoveryStrategy: DiscoveryStrategy = {
-  resolveAuthBaseUrl: (requestUrl, config) => {
-    const authPort = Number(config.PORT) + 1;
-    return `${requestUrl.protocol}//${requestUrl.hostname}:${authPort}`;
-  },
-  resolveAuthorizationServerUrl: (requestUrl, config) => {
-    const authPort = Number(config.PORT) + 1;
-    return `${requestUrl.protocol}//${requestUrl.hostname}:${authPort}/.well-known/oauth-authorization-server`;
-  },
-  resolveResourceBaseUrl: (requestUrl) =>
-    `${requestUrl.protocol}//${requestUrl.host}/mcp`,
+  resolveAuthBaseUrl: (url, config) => `${url.protocol}//${url.hostname}:${Number(config.PORT) + 1}`,
+  resolveAuthorizationServerUrl: (url, config) => `${url.protocol}//${url.hostname}:${Number(config.PORT) + 1}`,
+  resolveResourceBaseUrl: (url) => `${url.protocol}//${url.host}/mcp`,
 };

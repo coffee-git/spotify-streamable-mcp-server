@@ -1,208 +1,100 @@
-/**
- * Input schemas for Spotify MCP tools.
- * All schemas use Zod with descriptions for LLM understanding.
- */
-
 import { z } from 'zod';
 
-// ---------------------------------------------------------------------------
-// Search
-// ---------------------------------------------------------------------------
+const SpotifyUriSchema = z
+  .string()
+  .regex(/^spotify:(track|episode):[A-Za-z0-9]+$/, 'Use a Spotify track or episode URI.');
 
 export const SpotifySearchInputSchema = z.object({
   queries: z
-    .array(z.string().min(1))
+    .array(z.string().trim().min(1))
     .min(1)
     .max(20)
-    .describe(
-      "Search strings. Pass one or more; each runs separately. Supports field filters like 'track:', 'artist:', 'year:'.",
-    ),
+    .describe('One or more catalog search strings. Each query runs separately.'),
   types: z
     .array(z.enum(['album', 'artist', 'playlist', 'track']))
     .min(1)
-    .describe(
-      "Item categories to search across. Supported: 'album', 'artist', 'playlist', 'track'.",
-    ),
-  market: z
-    .string()
-    .length(2)
-    .optional()
-    .describe(
-      '2-letter country code (ISO 3166-1). Returns only content available in that market.',
-    ),
-  limit: z
-    .number()
-    .min(1)
-    .max(50)
-    .default(20)
-    .describe('Max results per item type (1-50).'),
-  offset: z
-    .number()
-    .min(0)
-    .max(1000)
-    .default(0)
-    .describe('Index of first result (0-1000).'),
-  include_external: z
-    .literal('audio')
-    .optional()
-    .describe("If set to 'audio', mark externally hosted audio as playable."),
+    .describe('Spotify item types to search.'),
+  market: z.string().length(2).optional().describe('ISO 3166-1 alpha-2 market code.'),
+  limit: z.number().int().min(1).max(10).default(5).describe('Results per type, 1-10.'),
+  offset: z.number().int().min(0).max(1000).default(0).describe('Search offset.'),
+  include_external: z.literal('audio').optional(),
 });
 export type SpotifySearchInput = z.infer<typeof SpotifySearchInputSchema>;
-
-// ---------------------------------------------------------------------------
-// Status
-// ---------------------------------------------------------------------------
 
 export const SpotifyStatusInputSchema = z.object({
   include: z
     .array(z.enum(['player', 'devices', 'queue', 'current_track']))
     .default(['player', 'devices', 'current_track'])
-    .describe(
-      "Which sections to fetch: 'player', 'devices', 'queue', 'current_track'.",
-    ),
+    .describe('Player sections to return.'),
 });
 export type SpotifyStatusInput = z.infer<typeof SpotifyStatusInputSchema>;
 
-// ---------------------------------------------------------------------------
-// Control
-// ---------------------------------------------------------------------------
+const ControlOperationSchema = z
+  .object({
+    action: z.enum([
+      'play',
+      'pause',
+      'next',
+      'previous',
+      'seek',
+      'volume',
+      'shuffle',
+      'repeat',
+      'transfer',
+      'queue',
+    ]),
+    device_id: z
+      .string()
+      .optional()
+      .describe('Exact device ID returned by player_status, never the display name.'),
+    position_ms: z.number().int().nonnegative().optional(),
+    volume_percent: z.number().min(0).max(100).optional(),
+    shuffle: z.boolean().optional(),
+    repeat: z.enum(['off', 'track', 'context']).optional(),
+    context_uri: z.string().trim().min(1).optional(),
+    uris: z.array(SpotifyUriSchema).min(1).max(100).optional(),
+    offset: z
+      .object({
+        position: z.number().int().nonnegative().optional(),
+        uri: SpotifyUriSchema.optional(),
+      })
+      .optional(),
+    queue_uri: SpotifyUriSchema.optional(),
+    transfer_play: z.boolean().optional(),
+  })
+  .superRefine((operation, ctx) => {
+    if (operation.context_uri && operation.uris?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['context_uri'],
+        message: 'Provide context_uri or uris, not both.',
+      });
+    }
+    if (operation.offset?.uri && !operation.context_uri) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['offset', 'uri'],
+        message: 'offset.uri requires context_uri.',
+      });
+    }
+    if (operation.offset?.uri && operation.offset.position !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['offset'],
+        message: 'Use offset.position or offset.uri, not both.',
+      });
+    }
+  });
 
 export const SpotifyControlInputSchema = z.object({
   operations: z
-    .array(
-      z
-        .object({
-          action: z
-            .enum([
-              'play',
-              'pause',
-              'next',
-              'previous',
-              'seek',
-              'volume',
-              'shuffle',
-              'repeat',
-              'transfer',
-              'queue',
-            ])
-            .describe('Operation to perform.'),
-          device_id: z
-            .string()
-            .optional()
-            .describe(
-              "Target device ID — a long alphanumeric hash from player_status → devices[].id or player.device_id. NEVER use device name (like 'MacBook Pro')! Required for 'transfer'; optional for others.",
-            ),
-          position_ms: z
-            .number()
-            .nonnegative()
-            .optional()
-            .describe('Seek or start playback from this position (milliseconds).'),
-          volume_percent: z
-            .number()
-            .min(0)
-            .max(100)
-            .optional()
-            .describe('Volume level 0-100 for volume action.'),
-          shuffle: z
-            .boolean()
-            .optional()
-            .describe('Shuffle on/off for shuffle action.'),
-          repeat: z
-            .enum(['off', 'track', 'context'])
-            .optional()
-            .describe('Repeat mode for repeat action.'),
-          context_uri: z
-            .string()
-            .optional()
-            .transform((value) => {
-              if (!value) return undefined;
-              const trimmed = value.trim();
-              return trimmed.length > 0 ? trimmed : undefined;
-            })
-            .describe(
-              "Playback context URI (album/artist/playlist). Must NOT be provided together with 'uris'. Use with 'offset' to pick a specific track (album/playlist only).",
-            ),
-          uris: z
-            .array(z.string())
-            .optional()
-            .describe(
-              "Track URIs to play directly. Must NOT be provided together with 'context_uri'.",
-            ),
-          offset: z
-            .object({
-              position: z.number().nonnegative().optional(),
-              uri: z
-                .string()
-                .optional()
-                .transform((value) => {
-                  if (!value) return undefined;
-                  const trimmed = value.trim();
-                  return trimmed.length > 0 ? trimmed : undefined;
-                }),
-            })
-            .optional()
-            .describe(
-              'Start point within the context: zero-based position or an item URI present in the context (album/playlist). Provide only when using context playback.',
-            ),
-          queue_uri: z
-            .string()
-            .optional()
-            .transform((value) => {
-              if (!value) return undefined;
-              const trimmed = value.trim();
-              return trimmed.length > 0 ? trimmed : undefined;
-            })
-            .describe('Item URI to add to the queue (track or episode).'),
-          transfer_play: z
-            .boolean()
-            .optional()
-            .describe(
-              'When transferring, start playback immediately on the new device.',
-            ),
-        })
-        .superRefine((operation, ctx) => {
-          const hasContext = typeof operation.context_uri === 'string';
-          const hasUris =
-            Array.isArray(operation.uris) && operation.uris.filter(Boolean).length > 0;
-          if (hasContext && hasUris) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message:
-                "Illegal playback payload: provide either 'context_uri' (optionally with 'offset') or 'uris'. Spotify rejects requests that include both.",
-              path: ['context_uri'],
-            });
-          }
-          if (operation.offset?.uri && !hasContext) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "'offset.uri' requires a 'context_uri' album or playlist.",
-              path: ['offset', 'uri'],
-            });
-          }
-          if (typeof operation.offset?.position === 'number' && operation.offset?.uri) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Use only one of 'offset.position' or 'offset.uri'.",
-              path: ['offset'],
-            });
-          }
-        }),
-    )
+    .array(ControlOperationSchema)
     .min(1)
     .max(25)
-    .describe('Batch of 1-25 operations.'),
-  parallel: z
-    .boolean()
-    .optional()
-    .describe(
-      'If true, run all operations concurrently. Default is sequential execution in given order for safety.',
-    ),
+    .describe('Playback operations. Sequential execution is the safe default.'),
+  parallel: z.boolean().optional().describe('Run operations concurrently when true.'),
 });
 export type SpotifyControlInput = z.infer<typeof SpotifyControlInputSchema>;
-
-// ---------------------------------------------------------------------------
-// Playlist
-// ---------------------------------------------------------------------------
 
 export const SpotifyPlaylistInputSchema = z.object({
   action: z
@@ -216,122 +108,86 @@ export const SpotifyPlaylistInputSchema = z.object({
       'remove_items',
       'reorder_items',
     ])
-    .describe(
-      'Playlist action: list_user, get, items, create, update_details, add_items, remove_items, reorder_items.',
-    ),
+    .describe('Playlist operation to perform.'),
   playlist_id: z
     .string()
-    .optional()
-    .describe(
-      'Target playlist ID. Required for get/items/update_details/add_items/remove_items/reorder_items.',
-    ),
-  limit: z
-    .number()
-    .int()
+    .trim()
     .min(1)
-    .max(50)
-    .default(20)
     .optional()
-    .describe('Pagination limit (1-50) for list_user/items.'),
-  offset: z
-    .number()
-    .int()
-    .min(0)
-    .max(100000)
-    .default(0)
-    .optional()
-    .describe('Pagination offset for list_user/items.'),
-  market: z
-    .string()
-    .length(2)
-    .optional()
-    .describe('2-letter country code for get/items.'),
-  fields: z
-    .string()
-    .optional()
-    .describe("Spotify 'fields' filter to select response fields (get/items)."),
+    .describe('Required for every action except list_user and create.'),
+  limit: z.number().int().min(1).max(50).default(20).optional(),
+  offset: z.number().int().min(0).max(100000).default(0).optional(),
+  market: z.string().length(2).optional(),
+  fields: z.string().trim().min(1).optional(),
   additional_types: z
-    .enum(['track', 'episode'])
+    .literal('track')
     .optional()
-    .describe("Include 'episode' items when listing playlist items (items)."),
-  name: z.string().optional().describe('Playlist name (create/update_details).'),
-  description: z
-    .string()
+    .describe('Only tracks are supported by this MCP response schema.'),
+  name: z.string().trim().min(1).max(100).optional(),
+  description: z.string().max(300).optional(),
+  public: z.boolean().optional(),
+  collaborative: z.boolean().optional(),
+  uris: z
+    .array(SpotifyUriSchema)
+    .min(1)
+    .max(100)
     .optional()
-    .describe('Playlist description (create/update_details).'),
-  public: z
-    .boolean()
+    .describe('Exact Spotify URIs for add_items.'),
+  items: z
+    .array(z.object({ uri: SpotifyUriSchema }))
+    .min(1)
+    .max(100)
     .optional()
-    .describe('Whether the playlist is public (create/update_details).'),
-  collaborative: z
-    .boolean()
-    .optional()
-    .describe('Whether the playlist is collaborative (create/update_details).'),
-  uris: z.array(z.string()).optional().describe('Track URIs to add (add_items).'),
+    .describe('Items to remove by URI.'),
   tracks: z
-    .array(z.object({ uri: z.string() }))
+    .array(z.object({ uri: SpotifyUriSchema }))
+    .min(1)
+    .max(100)
     .optional()
-    .describe('Tracks to remove by URI: [{ uri }] (remove_items).'),
-  range_start: z
-    .number()
-    .int()
-    .nonnegative()
-    .optional()
-    .describe('Start index of the range to move (reorder_items).'),
-  insert_before: z
-    .number()
-    .int()
-    .nonnegative()
-    .optional()
-    .describe('Insert the range before this index (reorder_items).'),
-  range_length: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe('Length of the range (default 1) (reorder_items).'),
-  snapshot_id: z
-    .string()
-    .optional()
-    .describe(
-      'Optional snapshot for concurrency control (remove_items/reorder_items).',
-    ),
+    .describe('Deprecated alias for items.'),
+  range_start: z.number().int().nonnegative().optional(),
+  insert_before: z.number().int().nonnegative().optional(),
+  range_length: z.number().int().positive().optional(),
+  snapshot_id: z.string().optional(),
 });
 export type SpotifyPlaylistInput = z.infer<typeof SpotifyPlaylistInputSchema>;
 
-// ---------------------------------------------------------------------------
-// Library
-// ---------------------------------------------------------------------------
-
 export const SpotifyLibraryInputSchema = z.object({
-  action: z
-    .enum(['tracks_get', 'tracks_add', 'tracks_remove', 'tracks_contains'])
-    .describe('Saved songs action.'),
-  market: z
-    .string()
-    .length(2)
-    .optional()
-    .describe('2-letter country code (tracks_get only).'),
-  limit: z
-    .number()
-    .int()
+  action: z.enum(['tracks_get', 'tracks_add', 'tracks_remove', 'tracks_contains']),
+  market: z.string().length(2).optional(),
+  limit: z.number().int().min(1).max(50).default(20).optional(),
+  offset: z.number().int().min(0).max(100000).default(0).optional(),
+  uris: z
+    .array(z.string().regex(/^spotify:track:[A-Za-z0-9]+$/))
     .min(1)
-    .max(50)
-    .default(20)
+    .max(40)
     .optional()
-    .describe('Pagination limit for tracks_get.'),
-  offset: z
-    .number()
-    .int()
-    .min(0)
-    .max(1000)
-    .default(0)
-    .optional()
-    .describe('Pagination offset for tracks_get.'),
+    .describe('Track URIs for add, remove, or contains.'),
   ids: z
-    .array(z.string())
-    .max(50)
+    .array(z.string().regex(/^[A-Za-z0-9]+$/))
+    .min(1)
+    .max(40)
     .optional()
-    .describe('Spotify track IDs (not URIs). Required for tracks_add/remove/contains.'),
+    .describe('Track IDs accepted as a compatibility alias for uris.'),
 });
 export type SpotifyLibraryInput = z.infer<typeof SpotifyLibraryInputSchema>;
+
+export const SpotifyUserDataInputSchema = z.object({
+  action: z.enum(['profile', 'recently_played', 'top_tracks', 'top_artists']),
+  limit: z.number().int().min(1).max(50).default(20).optional(),
+  offset: z.number().int().min(0).max(100000).default(0).optional(),
+  time_range: z.enum(['short_term', 'medium_term', 'long_term']).default('medium_term').optional(),
+  after: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Unix timestamp in milliseconds for recently_played pagination.'),
+  before: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Unix timestamp in milliseconds for recently_played pagination.'),
+});
+export type SpotifyUserDataInput = z.infer<typeof SpotifyUserDataInputSchema>;

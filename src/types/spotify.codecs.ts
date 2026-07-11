@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
-// Basic primitives
 const ImageCodec = z.object({
   url: z.string().optional(),
   width: z.number().nullable().optional(),
   height: z.number().nullable().optional(),
 });
 
-// Track (subset)
+const ExternalUrlsCodec = z.object({ spotify: z.string().optional() }).optional();
+
 export const TrackCodec = z.object({
   id: z.string().nullable().optional(),
   uri: z.string().nullable().optional(),
@@ -15,20 +15,27 @@ export const TrackCodec = z.object({
   artists: z.array(z.object({ name: z.string().nullable().optional() })).optional(),
   album: z.object({ name: z.string().nullable().optional() }).nullable().optional(),
   duration_ms: z.number().nullable().optional(),
-  external_urls: z.object({ spotify: z.string().optional() }).optional(),
+  external_urls: ExternalUrlsCodec,
 });
 export type TrackCodecType = z.infer<typeof TrackCodec>;
 
-// Minimal entity for album/artist/playlist-like results
+export const ArtistCodec = z.object({
+  id: z.string().nullable().optional(),
+  uri: z.string().nullable().optional(),
+  name: z.string().nullable().optional(),
+  genres: z.array(z.string()).optional(),
+  external_urls: ExternalUrlsCodec,
+});
+export type ArtistCodecType = z.infer<typeof ArtistCodec>;
+
 export const MinimalEntityCodec = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   uri: z.string().optional(),
-  external_urls: z.object({ spotify: z.string().optional() }).optional(),
+  external_urls: ExternalUrlsCodec,
 });
 export type MinimalEntityCodecType = z.infer<typeof MinimalEntityCodec>;
 
-// Devices
 export const DeviceCodec = z.object({
   id: z.string().nullable(),
   name: z.string(),
@@ -39,7 +46,6 @@ export const DeviceCodec = z.object({
 export const DevicesResponseCodec = z.object({ devices: z.array(DeviceCodec) });
 export type DevicesResponseCodecType = z.infer<typeof DevicesResponseCodec>;
 
-// Player state
 export const PlayerStateCodec = z.object({
   is_playing: z.boolean().optional(),
   shuffle_state: z.boolean().optional(),
@@ -51,37 +57,43 @@ export const PlayerStateCodec = z.object({
 });
 export type PlayerStateCodecType = z.infer<typeof PlayerStateCodec>;
 
-// Currently playing
 export const CurrentlyPlayingCodec = z.object({
   item: TrackCodec.nullable().optional(),
   is_playing: z.boolean().optional(),
 });
 export type CurrentlyPlayingCodecType = z.infer<typeof CurrentlyPlayingCodec>;
 
-// Queue
 export const QueueResponseCodec = z.object({
   currently_playing: TrackCodec.nullable().optional(),
   queue: z.array(TrackCodec).optional(),
 });
 export type QueueResponseCodecType = z.infer<typeof QueueResponseCodec>;
 
-// Me
-export const MeResponseCodec = z.object({ id: z.string().optional() });
+export const MeResponseCodec = z.object({
+  id: z.string().optional(),
+  display_name: z.string().nullable().optional(),
+  uri: z.string().nullable().optional(),
+  external_urls: ExternalUrlsCodec,
+  images: z.array(ImageCodec).nullable().optional(),
+});
 export type MeResponseCodecType = z.infer<typeof MeResponseCodec>;
 
-// Playlists (simplified)
 export const PlaylistOwnerCodec = z
   .object({ display_name: z.string().nullable().optional() })
   .optional();
+const PlaylistItemsSummaryCodec = z.object({
+  total: z.number().nullable().optional(),
+}).optional();
 export const PlaylistSimplifiedCodec = z.object({
   id: z.string().nullable().optional(),
   name: z.string().nullable().optional(),
   uri: z.string().nullable().optional(),
-  external_urls: z.object({ spotify: z.string().optional() }).optional(),
+  external_urls: ExternalUrlsCodec,
   public: z.boolean().nullable().optional(),
   owner: PlaylistOwnerCodec,
   images: z.array(ImageCodec).nullable().optional(),
-  tracks: z.object({ total: z.number().nullable().optional() }).optional(),
+  items: PlaylistItemsSummaryCodec,
+  tracks: PlaylistItemsSummaryCodec,
 });
 export type PlaylistSimplifiedCodecType = z.infer<typeof PlaylistSimplifiedCodec>;
 
@@ -96,26 +108,27 @@ export type PlaylistListResponseCodecType = z.infer<typeof PlaylistListResponseC
 export const PlaylistDetailsResponseCodec = PlaylistSimplifiedCodec.extend({
   description: z.string().nullable().optional(),
 });
-export type PlaylistDetailsResponseCodecType = z.infer<
-  typeof PlaylistDetailsResponseCodec
->;
+export type PlaylistDetailsResponseCodecType = z.infer<typeof PlaylistDetailsResponseCodec>;
 
-export const PlaylistTracksItemCodec = z.object({
+export const PlaylistItemCodec = z.object({
+  item: TrackCodec.nullable().optional(),
   track: TrackCodec.nullable().optional(),
+  is_local: z.boolean().optional(),
 });
-export const PlaylistTracksResponseCodec = z.object({
-  items: z.array(PlaylistTracksItemCodec).optional(),
+export const PlaylistItemsResponseCodec = z.object({
+  items: z.array(PlaylistItemCodec).optional(),
   limit: z.number().optional(),
   offset: z.number().optional(),
   total: z.number().optional(),
 });
-export type PlaylistTracksResponseCodecType = z.infer<
-  typeof PlaylistTracksResponseCodec
->;
+export type PlaylistItemsResponseCodecType = z.infer<typeof PlaylistItemsResponseCodec>;
+export const PlaylistTracksItemCodec = PlaylistItemCodec;
+export const PlaylistTracksResponseCodec = PlaylistItemsResponseCodec;
+export type PlaylistTracksResponseCodecType = PlaylistItemsResponseCodecType;
 
-// Library
 export const SavedTracksItemCodec = z.object({
   track: TrackCodec.nullable().optional(),
+  added_at: z.string().optional(),
 });
 export const SavedTracksResponseCodec = z.object({
   items: z.array(SavedTracksItemCodec).optional(),
@@ -125,13 +138,48 @@ export const SavedTracksResponseCodec = z.object({
 });
 export type SavedTracksResponseCodecType = z.infer<typeof SavedTracksResponseCodec>;
 
-// Snapshot
-export const SnapshotResponseCodec = z.object({
-  snapshot_id: z.string().optional(),
+export const RecentlyPlayedResponseCodec = z.object({
+  items: z.array(z.object({
+    track: TrackCodec.nullable().optional(),
+    played_at: z.string().optional(),
+    context: z.object({
+      type: z.string().nullable().optional(),
+      uri: z.string().nullable().optional(),
+      external_urls: ExternalUrlsCodec,
+    }).nullable().optional(),
+  })).optional(),
+  limit: z.number().optional(),
+  next: z.string().nullable().optional(),
+  cursors: z.object({
+    after: z.string().nullable().optional(),
+    before: z.string().nullable().optional(),
+  }).optional(),
 });
+export type RecentlyPlayedResponseCodecType = z.infer<typeof RecentlyPlayedResponseCodec>;
+
+export const TopTracksResponseCodec = z.object({
+  items: z.array(TrackCodec).optional(),
+  limit: z.number().optional(),
+  offset: z.number().optional(),
+  total: z.number().optional(),
+  next: z.string().nullable().optional(),
+  previous: z.string().nullable().optional(),
+});
+export type TopTracksResponseCodecType = z.infer<typeof TopTracksResponseCodec>;
+
+export const TopArtistsResponseCodec = z.object({
+  items: z.array(ArtistCodec).optional(),
+  limit: z.number().optional(),
+  offset: z.number().optional(),
+  total: z.number().optional(),
+  next: z.string().nullable().optional(),
+  previous: z.string().nullable().optional(),
+});
+export type TopArtistsResponseCodecType = z.infer<typeof TopArtistsResponseCodec>;
+
+export const SnapshotResponseCodec = z.object({ snapshot_id: z.string().optional() });
 export type SnapshotResponseCodecType = z.infer<typeof SnapshotResponseCodec>;
 
-// Search response (minimal structure)
 const SearchBlockCodec = z.object({
   items: z.array(z.unknown()).optional(),
   total: z.number().optional(),
@@ -147,7 +195,6 @@ export const SearchResponseCodec = z.object({
 });
 export type SearchResponseCodecType = z.infer<typeof SearchResponseCodec>;
 
-// Spotify Accounts Token response (refresh/access token exchange)
 export const SpotifyTokenResponseCodec = z.object({
   access_token: z.string().optional(),
   refresh_token: z.string().optional(),
@@ -156,39 +203,3 @@ export const SpotifyTokenResponseCodec = z.object({
   token_type: z.string().optional(),
 });
 export type SpotifyTokenResponseCodecType = z.infer<typeof SpotifyTokenResponseCodec>;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

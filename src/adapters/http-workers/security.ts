@@ -1,5 +1,4 @@
 // Workers adapter for MCP security
-// Provider-agnostic version from Spotify MCP
 
 import type { UnifiedConfig } from '../../shared/config/env.js';
 import { withCors } from '../../shared/http/cors.js';
@@ -10,10 +9,30 @@ import {
 } from '../../shared/mcp/security.js';
 import type { TokenStore } from '../../shared/storage/interface.js';
 
-/**
- * Check if request needs authentication and challenge if missing
- * Returns null if authorized, otherwise returns 401 challenge response
- */
+function unauthorized(request: Request, sid: string, message = 'Unauthorized'): Response {
+  const challenge = buildUnauthorizedChallenge({
+    origin: new URL(request.url).origin,
+    sid,
+    message,
+  });
+  return withCors(
+    new Response(JSON.stringify(challenge.body), {
+      status: challenge.status,
+      headers: {
+        'Content-Type': 'application/json',
+        'Mcp-Session-Id': sid,
+        'WWW-Authenticate': challenge.headers['WWW-Authenticate'],
+      },
+    }),
+  );
+}
+
+function normalizeResource(value: string): string {
+  const url = new URL(value);
+  url.hash = '';
+  return url.toString();
+}
+
 export async function checkAuthAndChallenge(
   request: Request,
   store: TokenStore,
@@ -24,71 +43,34 @@ export async function checkAuthAndChallenge(
     validateOrigin(request.headers, config.NODE_ENV === 'development');
     validateProtocolVersion(request.headers, config.MCP_PROTOCOL_VERSION);
   } catch (error) {
-    const challenge = buildUnauthorizedChallenge({
-      origin: new URL(request.url).origin,
-      sid,
-      message: (error as Error).message,
-    });
-
-    const resp = new Response(JSON.stringify(challenge.body), {
-      status: challenge.status,
-      headers: {
-        'Content-Type': 'application/json',
-        'Mcp-Session-Id': sid,
-        'WWW-Authenticate': challenge.headers['WWW-Authenticate'],
-      },
-    });
-    return withCors(resp);
+    return unauthorized(request, sid, (error as Error).message);
   }
 
-  if (!config.AUTH_ENABLED) {
-    return null;
-  }
+  if (!config.AUTH_ENABLED) return null;
 
   const authHeader = request.headers.get('Authorization');
-  const apiKeyHeader =
-    request.headers.get('x-api-key') || request.headers.get('x-auth-token');
+  const apiKeyHeader = request.headers.get('x-api-key') || request.headers.get('x-auth-token');
+  if (!authHeader && !apiKeyHeader) return unauthorized(request, sid);
 
-  // Challenge if no auth
-  if (!authHeader && !apiKeyHeader) {
-    const origin = new URL(request.url).origin;
-    const challenge = buildUnauthorizedChallenge({ origin, sid });
+  if (!config.AUTH_REQUIRE_RS || !authHeader) return null;
 
-    const resp = new Response(JSON.stringify(challenge.body), {
-      status: challenge.status,
-      headers: {
-        'Content-Type': 'application/json',
-        'Mcp-Session-Id': sid,
-        'WWW-Authenticate': challenge.headers['WWW-Authenticate'],
-      },
-    });
-    return withCors(resp);
+  const bearer = authHeader.match(/^\s*Bearer\s+(.+)$/i)?.[1];
+  if (!bearer) return unauthorized(request, sid);
+
+  const record = await store.getByRsAccess(bearer);
+  if (!record?.provider?.access_token) {
+    return config.AUTH_ALLOW_DIRECT_BEARER ? null : unauthorized(request, sid);
   }
 
-  // Check RS token if required
-  if (config.AUTH_REQUIRE_RS && authHeader) {
-    const match = authHeader.match(/^\s*Bearer\s+(.+)$/i);
-    const bearer = match?.[1];
+  const provider = record.provider;
+  const expectedResource = config.AUTH_RESOURCE_URI || `${new URL(request.url).origin}/mcp`;
+  const expired = !provider.rs_access_expires_at || Date.now() >= provider.rs_access_expires_at;
+  const revoked = Boolean(provider.revoked_at);
+  const wrongAudience = !provider.resource
+    || normalizeResource(provider.resource) !== normalizeResource(expectedResource);
 
-    if (bearer) {
-      const record = await store.getByRsAccess(bearer);
-      const hasMapping = !!record?.provider?.access_token;
-
-      if (!hasMapping && !config.AUTH_ALLOW_DIRECT_BEARER) {
-        const origin = new URL(request.url).origin;
-        const challenge = buildUnauthorizedChallenge({ origin, sid });
-
-        const resp = new Response(JSON.stringify(challenge.body), {
-          status: challenge.status,
-          headers: {
-            'Content-Type': 'application/json',
-            'Mcp-Session-Id': sid,
-            'WWW-Authenticate': challenge.headers['WWW-Authenticate'],
-          },
-        });
-        return withCors(resp);
-      }
-    }
+  if (expired || revoked || wrongAudience) {
+    return unauthorized(request, sid, 'Invalid or expired access token');
   }
 
   return null;

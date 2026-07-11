@@ -4,82 +4,62 @@ import type { UnifiedConfig } from '../config/env.js';
 import type {
   AuthorizeInput,
   OAuthConfig,
+  OAuthFlowOptions,
   ProviderConfig,
   TokenInput,
 } from './types.js';
 
-/**
- * Parse authorization request from URL search params.
- */
 export function parseAuthorizeInput(url: URL, sessionId?: string): AuthorizeInput {
   return {
+    clientId: url.searchParams.get('client_id') || '',
     codeChallenge: url.searchParams.get('code_challenge') || '',
     codeChallengeMethod: url.searchParams.get('code_challenge_method') || '',
     redirectUri: url.searchParams.get('redirect_uri') || '',
+    resource: url.searchParams.get('resource') ?? undefined,
     requestedScope: url.searchParams.get('scope') ?? undefined,
     state: url.searchParams.get('state') ?? undefined,
     sid: url.searchParams.get('sid') || sessionId || undefined,
   };
 }
 
-/**
- * Parse callback request from URL search params.
- */
-export function parseCallbackInput(url: URL): {
-  code: string | null;
-  state: string | null;
-} {
-  return {
-    code: url.searchParams.get('code'),
-    state: url.searchParams.get('state'),
-  };
+export function parseCallbackInput(url: URL): { code: string | null; state: string | null } {
+  return { code: url.searchParams.get('code'), state: url.searchParams.get('state') };
 }
 
-/**
- * Parse token request from form data or JSON body.
- */
 export async function parseTokenInput(request: Request): Promise<URLSearchParams> {
   const contentType = request.headers.get('content-type') || '';
-
   if (contentType.includes('application/x-www-form-urlencoded')) {
-    const text = await request.text();
-    return new URLSearchParams(text);
+    return new URLSearchParams(await request.text());
   }
-
-  // Try JSON fallback
   const json = (await request.json().catch(() => ({}))) as Record<string, string>;
   return new URLSearchParams(json);
 }
 
-/**
- * Build TokenInput from parsed form data.
- */
 export function buildTokenInput(form: URLSearchParams): TokenInput | { error: string } {
   const grant = form.get('grant_type');
+  const clientId = form.get('client_id') || '';
+  const resource = form.get('resource') ?? undefined;
+  if (!clientId) return { error: 'missing_client_id' };
 
   if (grant === 'refresh_token') {
     const refreshToken = form.get('refresh_token');
-    if (!refreshToken) {
-      return { error: 'missing_refresh_token' };
-    }
-    return { grant: 'refresh_token', refreshToken };
+    if (!refreshToken) return { error: 'missing_refresh_token' };
+    return { grant: 'refresh_token', clientId, refreshToken, resource };
   }
 
   if (grant === 'authorization_code') {
     const code = form.get('code');
     const codeVerifier = form.get('code_verifier');
-    if (!code || !codeVerifier) {
-      return { error: 'missing_code_or_verifier' };
+    const redirectUri = form.get('redirect_uri') || '';
+    if (!code || !codeVerifier || !redirectUri) {
+      return { error: 'missing_code_verifier_or_redirect_uri' };
     }
-    return { grant: 'authorization_code', code, codeVerifier };
+    return { grant: 'authorization_code', clientId, code, codeVerifier, redirectUri, resource };
   }
 
   return { error: 'unsupported_grant_type' };
 }
 
-/**
- * Build ProviderConfig from UnifiedConfig.
- */
 export function buildProviderConfig(config: UnifiedConfig): ProviderConfig {
   return {
     clientId: config.PROVIDER_CLIENT_ID,
@@ -89,9 +69,6 @@ export function buildProviderConfig(config: UnifiedConfig): ProviderConfig {
   };
 }
 
-/**
- * Build OAuthConfig from UnifiedConfig.
- */
 export function buildOAuthConfig(config: UnifiedConfig): OAuthConfig {
   return {
     redirectUri: config.OAUTH_REDIRECT_URI,
@@ -100,23 +77,21 @@ export function buildOAuthConfig(config: UnifiedConfig): OAuthConfig {
   };
 }
 
-/**
- * Build flow options from request URL.
- */
 export function buildFlowOptions(
   url: URL,
   config: UnifiedConfig,
   overrides: { callbackPath?: string; tokenEndpointPath?: string } = {},
-): {
-  baseUrl: string;
-  isDev: boolean;
-  callbackPath: string;
-  tokenEndpointPath: string;
-} {
+): OAuthFlowOptions {
+  const resource = config.AUTH_RESOURCE_URI || `${url.origin}/mcp`;
+  if (config.NODE_ENV === 'production' && !config.RS_TOKENS_ENC_KEY) {
+    throw new Error('server_error: RS_TOKENS_ENC_KEY is required in production');
+  }
   return {
     baseUrl: url.origin,
     isDev: config.NODE_ENV === 'development',
     callbackPath: overrides.callbackPath ?? '/oauth/callback',
     tokenEndpointPath: overrides.tokenEndpointPath ?? '/api/token',
+    clientSigningKey: config.RS_TOKENS_ENC_KEY || `${url.origin}|development-only`,
+    resource,
   };
 }
