@@ -26,20 +26,20 @@ This fork uses the February 2026 Development Mode API changes:
 
 ## Cloudflare Workers deployment
 
-The repository uses the modern `wrangler.jsonc` configuration format. Edit that file directly before deploying.
+The repository uses `wrangler.jsonc`. Before deploying:
 
 ```bash
 bun install
 wrangler kv namespace create TOKENS
 ```
 
-Put the returned KV namespace ID into `wrangler.jsonc` under `kv_namespaces[0].id`. Set `AUTH_RESOURCE_URI` to the final public MCP endpoint, for example:
+Put the returned namespace ID into `wrangler.jsonc`. Replace the placeholder hostname in `AUTH_RESOURCE_URI` with the exact public MCP endpoint:
 
 ```text
 https://YOUR_WORKER.workers.dev/mcp
 ```
 
-Then configure secrets and deploy:
+Create a stable 32-byte secret. It encrypts token records and signs stateless Dynamic Client Registration IDs, so changing it disconnects registered clients.
 
 ```bash
 wrangler secret put SPOTIFY_CLIENT_ID
@@ -49,13 +49,15 @@ wrangler secret put RS_TOKENS_ENC_KEY
 wrangler deploy
 ```
 
+Production startup rejects OAuth requests when `RS_TOKENS_ENC_KEY` is missing.
+
 In Spotify Developer Dashboard, register the exact callback URL:
 
 ```text
 https://YOUR_WORKER.workers.dev/oauth/callback
 ```
 
-Deploy again after replacing the placeholder Worker hostname in `wrangler.jsonc`.
+Deploy again after replacing all placeholder Worker hostnames.
 
 ## ChatGPT Web
 
@@ -64,7 +66,9 @@ Deploy again after replacing the placeholder Worker hostname in `wrangler.jsonc`
 3. Complete the Spotify OAuth flow.
 4. Verify the tools are visible.
 
-The server exposes OAuth discovery, Dynamic Client Registration, PKCE, `/mcp`, and a standards-based `resource_metadata` challenge.
+The server exposes OAuth discovery, signed stateless Dynamic Client Registration, PKCE S256, resource/audience binding, rotating one-hour MCP access tokens, refresh tokens, revocation, `/mcp`, and a standards-based `resource_metadata` challenge.
+
+Redirect URIs are bound to the signed client ID. Keep `OAUTH_REDIRECT_ALLOW_ALL=false`; the legacy allowlist is only a development fallback and is not used to bypass DCR validation.
 
 ## Required Spotify scopes
 
@@ -83,6 +87,8 @@ user-library-read
 user-library-modify
 ```
 
+Remove scopes for capabilities you do not need. For a read-only deployment, omit playback modification, playlist modification, and library modification scopes.
+
 ## Reliable playlist workflow
 
 1. Page through saved tracks and relevant playlists.
@@ -93,7 +99,17 @@ user-library-modify
 6. Create the playlist and add approved URIs.
 7. Read playlist items to verify the write.
 
-## Development
+The playlist reader currently returns track items only. Non-track playlist entries are counted as `skipped_non_track` instead of being mislabeled as tracks.
+
+## Local development
+
+The MCP server uses port `3000`; the Node OAuth server uses `PORT + 1`, so the default Spotify callback is:
+
+```text
+http://127.0.0.1:3001/oauth/callback
+```
+
+Run validation with:
 
 ```bash
 bun install
@@ -105,7 +121,15 @@ bun run build
 
 ## Security
 
-This is intended for a private deployment. Keep `AUTH_REQUIRE_RS=true`, `AUTH_ALLOW_DIRECT_BEARER=false`, encrypt KV tokens, restrict Spotify app users, and do not expose credentials. Add stricter client-registration persistence, redirect allowlisting, audit logs, and revocation before operating it as a public multi-user service.
+This project is intended for a private deployment or a small explicitly controlled user set.
+
+- Keep `AUTH_REQUIRE_RS=true` and `AUTH_ALLOW_DIRECT_BEARER=false`.
+- Keep `OAUTH_REDIRECT_ALLOW_ALL=false`.
+- Use a stable, secret `RS_TOKENS_ENC_KEY`.
+- Restrict users in Spotify Developer Dashboard.
+- Rotate Spotify credentials and the encryption/signing key if they are exposed.
+- Review logs and Cloudflare access controls before exposing the service broadly.
+- Cloudflare KV is eventually consistent; the implementation deletes consumed codes and marks transactions consumed, but a high-assurance multi-region authorization server should use a strongly consistent store or Durable Object for atomic code consumption.
 
 ## License
 
