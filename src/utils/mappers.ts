@@ -3,6 +3,8 @@
  */
 
 import type {
+  ArtistCodecType,
+  MeResponseCodecType,
   MinimalEntityCodecType,
   PlaylistDetailsResponseCodecType,
   PlaylistSimplifiedCodecType,
@@ -17,7 +19,7 @@ export function toSlimTrack(t: TrackCodecType) {
     uri: t.uri ?? undefined,
     url: t.external_urls?.spotify ?? undefined,
     artists: Array.isArray(t.artists)
-      ? (t.artists.map((a) => a?.name).filter(Boolean) as string[])
+      ? (t.artists.map((artist) => artist?.name).filter(Boolean) as string[])
       : [],
     album: t.album?.name ?? undefined,
     duration_ms: t.duration_ms ?? undefined,
@@ -33,7 +35,7 @@ export function toPlaylistSummary(p: PlaylistSimplifiedCodecType) {
     public: typeof p.public === 'boolean' ? p.public : undefined,
     owner_name: p.owner?.display_name ?? undefined,
     images: pickLargestImageUrl(p.images),
-    tracks_total: p.tracks?.total ?? undefined,
+    items_total: p.items?.total ?? p.tracks?.total ?? undefined,
   };
 }
 
@@ -47,21 +49,38 @@ export function toPlaylistDetails(p: PlaylistDetailsResponseCodecType) {
     public: typeof p.public === 'boolean' ? p.public : undefined,
     owner_name: p.owner?.display_name ?? undefined,
     images: pickLargestImageUrl(p.images),
-    tracks_total: p.tracks?.total ?? undefined,
+    items_total: p.items?.total ?? p.tracks?.total ?? undefined,
+  };
+}
+
+export function toUserProfile(profile: MeResponseCodecType) {
+  return {
+    id: String(profile.id ?? ''),
+    display_name: profile.display_name ?? undefined,
+    uri: profile.uri ?? undefined,
+    url: profile.external_urls?.spotify ?? undefined,
+    image: pickLargestImageUrl(profile.images),
+  };
+}
+
+export function toSlimArtistDetails(artist: ArtistCodecType) {
+  return {
+    type: 'artist' as const,
+    id: String(artist.id ?? ''),
+    name: String(artist.name ?? ''),
+    uri: artist.uri ?? undefined,
+    url: artist.external_urls?.spotify ?? undefined,
+    genres: Array.isArray(artist.genres) ? artist.genres : [],
   };
 }
 
 function pickLargestImageUrl(
-  images: Array<{ url?: string; width?: number; height?: number }> | unknown,
+  images: Array<{ url?: string; width?: number | null; height?: number | null }> | null | unknown,
 ): string | undefined {
-  const list: Array<{ url?: string; width?: number; height?: number }> = Array.isArray(
-    images,
-  )
-    ? (images as Array<{ url?: string; width?: number; height?: number }>)
+  const list = Array.isArray(images)
+    ? (images as Array<{ url?: string; width?: number | null; height?: number | null }>)
     : [];
-  if (list.length === 0) {
-    return undefined;
-  }
+  if (list.length === 0) return undefined;
   const sorted = [...list].sort((a, b) => (b.width ?? 0) - (a.width ?? 0));
   return sorted[0]?.url || undefined;
 }
@@ -98,39 +117,3 @@ export function toSlimPlaylist(
     owner: p.owner?.display_name ?? undefined,
   };
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
