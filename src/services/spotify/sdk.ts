@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Spotify SDK client factory.
  * Provides user-authenticated Spotify API clients using the template's auth context.
  */
@@ -15,6 +15,7 @@ import { config } from '../../config/env.js';
 import { getTokenStore } from '../../shared/storage/singleton.js';
 import type { ToolContext } from '../../shared/tools/types.js';
 import { sharedLogger as logger } from '../../shared/utils/logger.js';
+import { withSpotify2026Compatibility } from './development-mode-2026.js';
 import { refreshSpotifyTokens } from './oauth.js';
 
 // ---------------------------------------------------------------------------
@@ -61,183 +62,6 @@ const responseDeserializer = {
 };
 
 const sdkOptions = { responseValidator, deserializer: responseDeserializer } as const;
-
-// ---------------------------------------------------------------------------
-// Spotify Development Mode 2026 compatibility
-// ---------------------------------------------------------------------------
-
-type SpotifyMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
-
-type SpotifyRequestRewrite = {
-  path: string;
-  body?: unknown;
-  fanOutTrackIds?: string[];
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function joinRelativePath(
-  originalPath: string,
-  pathname: string,
-  params: URLSearchParams,
-): string {
-  const prefix = originalPath.startsWith('/') ? '/' : '';
-  const query = params.toString();
-  return `${prefix}${pathname}${query ? `?${query}` : ''}`;
-}
-
-/**
- * Translate endpoints removed or renamed for Spotify Development Mode apps in 2026.
- * The rest of the project can keep its original, well-tested tool handlers.
- */
-export function rewriteSpotifyDevelopmentModeRequest(
-  method: string,
-  path: string,
-  body?: unknown,
-): SpotifyRequestRewrite {
-  const normalizedMethod = method.toUpperCase() as SpotifyMethod;
-  const separator = path.indexOf('?');
-  const rawPathname = separator >= 0 ? path.slice(0, separator) : path;
-  let pathname = rawPathname.replace(/^\/+/, '');
-  const params = new URLSearchParams(separator >= 0 ? path.slice(separator + 1) : '');
-  let rewrittenBody = body;
-
-  if (pathname === 'search') {
-    const requestedLimit = Number(params.get('limit') ?? 5);
-    if (!Number.isFinite(requestedLimit) || requestedLimit > 10) {
-      params.set('limit', '10');
-    }
-  }
-
-  const playlistItemsMatch = pathname.match(/^playlists\/([^/]+)\/tracks$/);
-  if (playlistItemsMatch) {
-    pathname = `playlists/${playlistItemsMatch[1]}/items`;
-    if (normalizedMethod === 'DELETE' && isRecord(body) && Array.isArray(body.tracks)) {
-      const { tracks, ...rest } = body;
-      rewrittenBody = { ...rest, items: tracks };
-    }
-  }
-
-  if (normalizedMethod === 'POST' && /^users\/[^/]+\/playlists$/.test(pathname)) {
-    pathname = 'me/playlists';
-  }
-
-  if (
-    pathname === 'me/tracks' &&
-    (normalizedMethod === 'PUT' || normalizedMethod === 'DELETE') &&
-    isRecord(body)
-  ) {
-    const ids = Array.isArray(body.ids)
-      ? body.ids.filter((id): id is string => typeof id === 'string')
-      : [];
-    const uris = Array.isArray(body.uris)
-      ? body.uris.filter((uri): uri is string => typeof uri === 'string')
-      : ids.map((id) => `spotify:track:${id}`);
-    pathname = 'me/library';
-    rewrittenBody = { uris };
-  }
-
-  if (normalizedMethod === 'GET' && pathname === 'me/tracks/contains') {
-    const ids = (params.get('ids') ?? '')
-      .split(',')
-      .map((id) => id.trim())
-      .filter(Boolean);
-    params.delete('ids');
-    params.set(
-      'uris',
-      ids.map((id) => `spotify:track:${id}`).join(','),
-    );
-    pathname = 'me/library/contains';
-  }
-
-  if (normalizedMethod === 'GET' && pathname === 'tracks' && params.has('ids')) {
-    const fanOutTrackIds = (params.get('ids') ?? '')
-      .split(',')
-      .map((id) => id.trim())
-      .filter(Boolean);
-    return {
-      path: joinRelativePath(path, pathname, params),
-      body: rewrittenBody,
-      fanOutTrackIds,
-    };
-  }
-
-  return {
-    path: joinRelativePath(path, pathname, params),
-    body: rewrittenBody,
-  };
-}
-
-/**
- * Normalize renamed playlist response fields back to the shapes consumed by the
- * existing codecs (`items` -> `tracks`, playlist entry `item` -> `track`).
- */
-export function normalizeSpotifyDevelopmentModeResponse(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(normalizeSpotifyDevelopmentModeResponse);
-  }
-  if (!isRecord(value)) {
-    return value;
-  }
-
-  const normalized: Record<string, unknown> = {};
-  for (const [key, nested] of Object.entries(value)) {
-    normalized[key] = normalizeSpotifyDevelopmentModeResponse(nested);
-  }
-
-  if ('item' in normalized && !('track' in normalized)) {
-    normalized.track = normalized.item;
-  }
-
-  const isPlaylist =
-    normalized.type === 'playlist' ||
-    ('snapshot_id' in normalized &&
-      ('owner' in normalized || 'collaborative' in normalized));
-  if (isPlaylist && 'items' in normalized && !('tracks' in normalized)) {
-    normalized.tracks = normalized.items;
-  }
-
-  return normalized;
-}
-
-const spotify2026Compatibility = Symbol('spotify2026Compatibility');
-
-type MutableSpotifyApi = {
-  makeRequest: <T>(method: string, path: string, body?: unknown) => Promise<T>;
-  [spotify2026Compatibility]?: boolean;
-};
-
-function withSpotify2026Compatibility(client: SpotifyApi): SpotifyApi {
-  const mutable = client as unknown as MutableSpotifyApi;
-  if (mutable[spotify2026Compatibility]) {
-    return client;
-  }
-
-  const originalMakeRequest = mutable.makeRequest.bind(client);
-  mutable.makeRequest = async <T>(method: string, path: string, body?: unknown) => {
-    const rewrite = rewriteSpotifyDevelopmentModeRequest(method, path, body);
-
-    if (rewrite.fanOutTrackIds) {
-      const tracks = await Promise.all(
-        rewrite.fanOutTrackIds.map((id) =>
-          originalMakeRequest<unknown>('GET', `tracks/${encodeURIComponent(id)}`),
-        ),
-      );
-      return normalizeSpotifyDevelopmentModeResponse({ tracks }) as T;
-    }
-
-    const response = await originalMakeRequest<unknown>(
-      method,
-      rewrite.path,
-      rewrite.body,
-    );
-    return normalizeSpotifyDevelopmentModeResponse(response) as T;
-  };
-  mutable[spotify2026Compatibility] = true;
-  return client;
-}
 
 // ---------------------------------------------------------------------------
 // App Client (Client Credentials - for non-user APIs like search)
