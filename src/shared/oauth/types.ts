@@ -1,10 +1,11 @@
 // OAuth flow types and DTOs
-// Provider-agnostic version from Spotify MCP
 
 export type AuthorizeInput = {
+  clientId: string;
   codeChallenge: string;
   codeChallengeMethod: string;
   redirectUri: string;
+  resource?: string;
   requestedScope?: string;
   state?: string;
   sid?: string;
@@ -28,18 +29,25 @@ export type CallbackResult = {
     refresh_token?: string;
     expires_at?: number;
     scopes?: string[];
+    client_id?: string;
+    resource?: string;
   };
 };
 
 export type TokenInput =
   | {
       grant: 'authorization_code';
+      clientId: string;
       code: string;
       codeVerifier: string;
+      redirectUri: string;
+      resource?: string;
     }
   | {
       grant: 'refresh_token';
+      clientId: string;
       refreshToken: string;
+      resource?: string;
     };
 
 export type TokenResult = {
@@ -54,6 +62,7 @@ export type RegisterInput = {
   redirect_uris?: string[];
   grant_types?: string[];
   response_types?: string[];
+  token_endpoint_auth_method?: string;
   client_name?: string;
 };
 
@@ -61,12 +70,10 @@ export type RegisterResult = {
   client_id: string;
   client_id_issued_at: number;
   client_secret_expires_at: number;
-  token_endpoint_auth_method: string;
+  token_endpoint_auth_method: 'none';
   redirect_uris: string[];
   grant_types: string[];
   response_types: string[];
-  registration_client_uri: string;
-  registration_access_token: string;
   client_name?: string;
 };
 
@@ -81,4 +88,13 @@ export type OAuthConfig = {
   redirectUri: string;
   redirectAllowlist: string[];
   redirectAllowAll: boolean;
+};
+
+export type OAuthFlowOptions = {
+  baseUrl: string;
+  isDev: boolean;
+  callbackPath: string;
+  tokenEndpointPath: string;
+  clientSigningKey: string;
+  resource: string;
 };
