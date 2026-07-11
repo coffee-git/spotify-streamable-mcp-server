@@ -21,9 +21,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
-      - name: Check changed source files with Biome
+      - name: Lint changed source files with Biome
         run: >-
-          bunx biome check
+          bunx biome lint
           src/services/spotify/sdk.ts
           src/shared/mcp/security.ts
           src/shared/oauth/discovery-handlers.ts
