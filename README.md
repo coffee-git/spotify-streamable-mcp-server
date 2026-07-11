@@ -26,13 +26,20 @@ This fork uses the February 2026 Development Mode API changes:
 
 ## Cloudflare Workers deployment
 
+The repository uses the modern `wrangler.jsonc` configuration format. Edit that file directly before deploying.
+
 ```bash
 bun install
 wrangler kv namespace create TOKENS
-cp wrangler.toml.example wrangler.toml
 ```
 
-Put the returned KV namespace ID into `wrangler.toml`. Then configure secrets:
+Put the returned KV namespace ID into `wrangler.jsonc` under `kv_namespaces[0].id`. Set `AUTH_RESOURCE_URI` to the final public MCP endpoint, for example:
+
+```text
+https://YOUR_WORKER.workers.dev/mcp
+```
+
+Then configure secrets and deploy:
 
 ```bash
 wrangler secret put SPOTIFY_CLIENT_ID
@@ -42,19 +49,13 @@ wrangler secret put RS_TOKENS_ENC_KEY
 wrangler deploy
 ```
 
-In Spotify Developer Dashboard, register:
+In Spotify Developer Dashboard, register the exact callback URL:
 
 ```text
 https://YOUR_WORKER.workers.dev/oauth/callback
 ```
 
-Set `AUTH_RESOURCE_URI` to the exact deployed endpoint:
-
-```text
-https://YOUR_WORKER.workers.dev/mcp
-```
-
-Deploy again after setting the final URL.
+Deploy again after replacing the placeholder Worker hostname in `wrangler.jsonc`.
 
 ## ChatGPT Web
 
