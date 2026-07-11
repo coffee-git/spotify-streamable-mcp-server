@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Shared tool registry for Spotify MCP.
  * Tools defined here work in both Node.js and Cloudflare Workers.
  */
@@ -10,6 +10,7 @@ import { searchCatalogTool } from './search-catalog.js';
 import { spotifyControlTool } from './spotify-control.js';
 import { spotifyLibraryTool } from './spotify-library.js';
 import { spotifyPlaylistTool } from './spotify-playlist.js';
+import { spotifyUserDataTool } from './spotify-user-data.js';
 import type { ToolContext, ToolResult } from './types.js';
 
 // Re-export types for convenience
@@ -39,6 +40,7 @@ export const sharedTools: RegisteredTool[] = [
   spotifyControlTool as unknown as RegisteredTool,
   spotifyPlaylistTool as unknown as RegisteredTool,
   spotifyLibraryTool as unknown as RegisteredTool,
+  spotifyUserDataTool as unknown as RegisteredTool,
 ];
 
 /**
